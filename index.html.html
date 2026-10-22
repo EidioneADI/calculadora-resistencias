@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calculadora de Resistores Comerciales (E12)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background-color: #0f172a; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; }
+    .card { background-color: #1e293b; border: 1px solid #334155; }
+  </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+  <div class="max-w-4xl mx-auto space-y-6">
+    
+    <!-- Encabezado -->
+    <header class="text-center space-y-2">
+      <h1 class="text-3xl font-extrabold text-blue-400">Calculadora de Resistencias Comerciales</h1>
+      <p class="text-slate-400 text-sm">Aproximación con 1, 2 o 3 resistencias reales en Serie o Paralelo (Serie E12)</p>
+    </header>
+
+    <!-- Formulario de entrada -->
+    <div class="card p-6 rounded-xl shadow-xl space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium mb-1 text-slate-300">Resistencia deseada:</label>
+          <div class="flex gap-2">
+            <input type="number" id="targetRes" value="467" step="any" min="1" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500">
+            <select id="unit" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
+              <option value="1">Ω</option>
+              <option value="1000">kΩ</option>
+              <option value="1000000">MΩ</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium mb-1 text-slate-300">Tolerancia deseada del resistor:</label>
+          <select id="tolerance" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white">
+            <option value="10">10% (Banda Plata / Serie E12 Estándar)</option>
+            <option value="5">5% (Banda Dorado)</option>
+            <option value="1">1% (Alta Precisión)</option>
+          </select>
+        </div>
+      </div>
+
+      <button onclick="calculate()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition duration-200">
+        Calcular Mejor Combinación Comercial
+      </button>
+    </div>
+
+    <!-- Resultados -->
+    <div id="results" class="space-y-4 hidden">
+      <!-- Tarjeta Principal con el Mejor Resultado -->
+      <div class="card p-6 rounded-xl border-l-4 border-l-green-500 space-y-4">
+        <div class="flex justify-between items-start flex-wrap gap-2">
+          <div>
+            <span class="text-xs font-semibold px-2.5 py-0.5 rounded bg-green-900 text-green-300">Mejor opción encontrada</span>
+            <h2 class="text-2xl font-bold mt-1 text-white" id="bestTitle">-</h2>
+          </div>
+          <div class="text-right">
+            <span class="text-sm text-slate-400">Error porcentual:</span>
+            <div class="text-2xl font-extrabold text-blue-400" id="bestError">0.00%</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-700 text-sm">
+          <div><span class="text-slate-400">Valor exacto obtenido:</span> <strong id="bestEq" class="text-slate-100">0 Ω</strong></div>
+          <div><span class="text-slate-400">Tipo de arreglo:</span> <strong id="bestType" class="text-slate-100">-</strong></div>
+        </div>
+
+        <!-- Gráfico del resistor con sus colores -->
+        <div class="pt-4 border-t border-slate-700">
+          <h3 class="text-sm font-semibold text-slate-300 mb-2">Código de colores para la combinación:</h3>
+          <div id="resistorBands" class="space-y-2"></div>
+        </div>
+      </div>
+
+      <!-- Tabla con más opciones de combinaciones -->
+      <div class="card p-6 rounded-xl space-y-3">
+        <h3 class="text-lg font-bold text-slate-200">Otras alternativas encontradas (1, 2 y 3 resistencias)</h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm text-slate-300">
+            <thead class="bg-slate-800 text-slate-400 uppercase text-xs">
+              <tr>
+                <th class="p-3">Cant.</th>
+                <th class="p-3">Tipo</th>
+                <th class="p-3">Resistencias Usadas</th>
+                <th class="p-3">R Equivalente</th>
+                <th class="p-3">Error</th>
+              </tr>
+            </thead>
+            <tbody id="optionsTable" class="divide-y divide-slate-800">
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // Serie E12 de la tabla comercial
+    const E12_BASE = [1.0, 1.2, 1.5, 1.8, 2.2, 2.7, 3.3, 3.9, 4.7, 5.6, 6.8, 8.2];
+    let COMMERCIAL_RESISTORS = [];
+
+    // Generar la lista completa de valores comerciales de 1 Ohm a 10 MOhm
+    for (let exp = 0; exp <= 6; exp++) {
+      const mult = Math.pow(10, exp);
+      E12_BASE.forEach(val => {
+        COMMERCIAL_RESISTORS.push(Math.round(val * mult * 100) / 100);
+      });
+    }
+
+    // Mapeo de colores para la banda de resistencias
+    const COLOR_MAP = {
+      0: { name: 'Negro', hex: '#000000' },
+      1: { name: 'Marrón', hex: '#8B4513' },
+      2: { name: 'Rojo', hex: '#EF4444' },
+      3: { name: 'Naranja', hex: '#F97316' },
+      4: { name: 'Amarillo', hex: '#EAB308' },
+      5: { name: 'Verde', hex: '#22C55E' },
+      6: { name: 'Azul', hex: '#3B82F6' },
+      7: { name: 'Violeta', hex: '#A855F7' },
+      8: { name: 'Gris', hex: '#6B7280' },
+      9: { name: 'Blanco', hex: '#FFFFFF' },
+      '-1': { name: 'Dorado', hex: '#EAB308' },
+      '-2': { name: 'Plata', hex: '#94A3B8' }
+    };
+
+    function formatRes(val) {
+      if (val >= 1e6) return (val / 1e6).toFixed(2).replace(/\.00$/, '') + ' MΩ';
+      if (val >= 1e3) return (val / 1e3).toFixed(2).replace(/\.00$/, '') + ' kΩ';
+      return val.toFixed(2).replace(/\.00$/, '') + ' Ω';
+    }
+
+    function calculate() {
+      const targetInput = parseFloat(document.getElementById('targetRes').value);
+      const unit = parseFloat(document.getElementById('unit').value);
+      const target = targetInput * unit;
+      const tol = document.getElementById('tolerance').value;
+
+      if (!target || target <= 0) return;
+
+      let combinations = [];
+
+      // 1. Un solo resistor
+      COMMERCIAL_RESISTORS.forEach(r => {
+        const err = Math.abs(r - target) / target * 100;
+        combinations.push({ count: 1, type: 'Directo', res: [r], eq: r, error: err });
+      });
+
+      // 2. Dos resistores (Serie y Paralelo)
+      for (let i = 0; i < COMMERCIAL_RESISTORS.length; i++) {
+        for (let j = i; j < COMMERCIAL_RESISTORS.length; j++) {
+          const r1 = COMMERCIAL_RESISTORS[i];
+          const r2 = COMMERCIAL_RESISTORS[j];
+
+          // Serie
+          const eqS = r1 + r2;
+          combinations.push({ count: 2, type: 'Serie', res: [r1, r2], eq: eqS, error: Math.abs(eqS - target) / target * 100 });
+
+          // Paralelo
+          const eqP = (r1 * r2) / (r1 + r2);
+          combinations.push({ count: 2, type: 'Paralelo', res: [r1, r2], eq: eqP, error: Math.abs(eqP - target) / target * 100 });
+        }
+      }
+
+      // 3. Tres resistores (Serie y Paralelo)
+      for (let i = 0; i < COMMERCIAL_RESISTORS.length; i++) {
+        for (let j = i; j < COMMERCIAL_RESISTORS.length; j++) {
+          for (let k = j; k < COMMERCIAL_RESISTORS.length; k++) {
+            const r1 = COMMERCIAL_RESISTORS[i];
+            const r2 = COMMERCIAL_RESISTORS[j];
+            const r3 = COMMERCIAL_RESISTORS[k];
+
+            // 3 en Serie
+            const eqS3 = r1 + r2 + r3;
+            if (Math.abs(eqS3 - target) / target * 100 < 5) {
+              combinations.push({ count: 3, type: 'Serie (3)', res: [r1, r2, r3], eq: eqS3, error: Math.abs(eqS3 - target) / target * 100 });
+            }
+
+            // 3 en Paralelo
+            const eqP3 = 1 / ((1/r1) + (1/r2) + (1/r3));
+            if (Math.abs(eqP3 - target) / target * 100 < 5) {
+              combinations.push({ count: 3, type: 'Paralelo (3)', res: [r1, r2, r3], eq: eqP3, error: Math.abs(eqP3 - target) / target * 100 });
+            }
+          }
+        }
+      }
+
+      // Ordenar por menor error porcentual
+      combinations.sort((a, b) => a.error - b.error);
+
+      // Mostrar el mejor resultado
+      const best = combinations[0];
+      document.getElementById('bestTitle').innerText = best.res.map(formatRes).join(best.type.includes('Serie') ? ' + ' : ' || ');
+      document.getElementById('bestError').innerText = best.error.toFixed(2) + '%';
+      document.getElementById('bestEq').innerText = formatRes(best.eq);
+      document.getElementById('bestType').innerText = `${best.count} resistor(es) en ${best.type}`;
+
+      // Renderizar colores de cada resistencia usada
+      const bandsDiv = document.getElementById('resistorBands');
+      bandsDiv.innerHTML = '';
+      best.res.forEach((rVal) => {
+        bandsDiv.appendChild(renderColorBands(rVal, tol));
+      });
+
+      // Llenar tabla secundaria
+      const tableBody = document.getElementById('optionsTable');
+      tableBody.innerHTML = '';
+      combinations.slice(0, 8).forEach(c => {
+        const row = document.createElement('tr');
+        row.className = 'border-b border-slate-800 hover:bg-slate-800/50';
+        row.innerHTML = `
+          <td class="p-3">${c.count}</td>
+          <td class="p-3"><span class="px-2 py-1 rounded text-xs ${c.type.includes('Serie') ? 'bg-blue-900 text-blue-300' : 'bg-purple-900 text-purple-300'}">${c.type}</span></td>
+          <td class="p-3">${c.res.map(formatRes).join(', ')}</td>
+          <td class="p-3 font-semibold">${formatRes(c.eq)}</td>
+          <td class="p-3 text-blue-400 font-bold">${c.error.toFixed(2)}%</td>
+        `;
+        tableBody.appendChild(row);
+      });
+
+      document.getElementById('results').classList.remove('hidden');
+    }
+
+    function renderColorBands(value, tol) {
+      // Cálculo de los 4 colores del resistor
+      let sig = value;
+      let exp = 0;
+
+      while (sig >= 100) { sig /= 10; exp++; }
+      while (sig < 10 && sig > 0) { sig *= 10; exp--; }
+
+      sig = Math.round(sig);
+      const digit1 = Math.floor(sig / 10);
+      const digit2 = sig % 10;
+
+      const c1 = COLOR_MAP[digit1] || COLOR_MAP[1];
+      const c2 = COLOR_MAP[digit2] || COLOR_MAP[0];
+      const c3 = COLOR_MAP[exp] || COLOR_MAP[0];
+      const cTol = tol == '10' ? COLOR_MAP['-2'] : (tol == '5' ? COLOR_MAP['-1'] : COLOR_MAP[1]);
+
+      const div = document.createElement('div');
+      div.className = 'flex items-center gap-3 bg-slate-900 p-2 rounded-lg border border-slate-700';
+      div.innerHTML = `
+        <span class="text-sm font-bold text-slate-200 w-24">${formatRes(value)}:</span>
+        <div class="flex gap-1.5 items-center">
+          <span class="w-4 h-6 rounded" style="background-color: ${c1.hex}" title="${c1.name}"></span>
+          <span class="w-4 h-6 rounded" style="background-color: ${c2.hex}" title="${c2.name}"></span>
+          <span class="w-4 h-6 rounded" style="background-color: ${c3.hex}" title="${c3.name}"></span>
+          <span class="w-1.5 h-6 bg-transparent"></span>
+          <span class="w-4 h-6 rounded" style="background-color: ${cTol.hex}" title="Tolerancia ${cTol.name}"></span>
+        </div>
+        <span class="text-xs text-slate-400 ml-2">(${c1.name}, ${c2.name}, ${c3.name}, ${cTol.name})</span>
+      `;
+      return div;
+    }
+
+    // Ejecutar una primera simulación
+    calculate();
+  </script>
+</body>
+</html>
